@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Draggable Sentence Editor with Compare & Spellcheck</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a1a;
+      --highlight: #e6f7ff;
+      --border: #007bff;
+      --added: #d4f8d4;
+      --removed: #ffd6d6;
+    }
+
+    body.dark {
+      --bg: #1e1e1e;
+      --text: #f1f1f1;
+      --highlight: #2c2c2c;
+      --border: #00bfff;
+      --added: #225522;
+      --removed: #662222;
+    }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .navbar {
+      background-color: var(--border);
+      padding: 15px 30px;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .navbar h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .toggle-dark {
+      background: transparent;
+      border: 2px solid white;
+      color: white;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .container {
+      padding: 20px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 120px;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+
+    button {
+      padding: 10px 18px;
+      font-size: 15px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+
+    button:hover {
+      background-color: #218838;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: auto;
+      background-color: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-content {
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 50px auto;
+      padding: 25px;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 900px;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+
+    .close {
+      float: right;
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      color: #888;
+    }
+
+    .close:hover {
+      color: #000;
+    }
+
+    .sentence-container {
+      counter-reset: sentence;
+    }
+
+    .sentence {
+      background-color: var(--highlight);
+      padding: 14px;
+      margin-bottom: 10px;
+      border-left: 6px solid var(--border);
+      border-radius: 6px;
+      font-size: 16px;
+      line-height: 1.4;
+      position: relative;
+      padding-left: 36px;
+      cursor: grab;
+    }
+
+    .sentence::before {
+      counter-increment: sentence;
+      content: counter(sentence) ". ";
+      font-weight: bold;
+      color: var(--border);
+      position: absolute;
+      left: 10px;
+      top: 14px;
+    }
+
+    .sentence[contenteditable] {
+      outline: none;
+      spellcheck: true;
+    }
+
+    .drag-over {
+      border: 2px dashed var(--border);
+      background-color: rgba(0, 123, 255, 0.1);
+    }
+
+    .diff-container {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .diff-box {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      min-width: 300px;
+      max-height: 60vh;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+
+    .added {
+      background-color: var(--added);
+    }
+
+    .removed {
+      background-color: var(--removed);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="navbar">
+    <h1>Sentence Editor</h1>
+    <button class="toggle-dark" onclick="toggleDarkMode()">Toggle Dark Mode</button>
+  </div>
+
+  <div class="container">
+    <textarea id="inputText" placeholder="Paste your first text here..."></textarea>
+    <textarea id="compareText" placeholder="Paste text to compare..."></textarea>
+    <br>
+    <button onclick="openPopup()">Check Sentences</button>
+    <button onclick="compareTexts()">Compare Texts</button>
+  </div>
+
+  <!-- Modal for Sentences -->
+  <div id="sentenceModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closePopup()">&times;</span>
+      <h2>Edit and Drag to Reorder</h2>
+      <div class="sentence-container" id="outputContainer"></div>
+    </div>
+  </div>
+
+  <!-- Modal for Comparison -->
+  <div id="compareModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeCompare()">&times;</span>
+      <h2>Text Comparison</h2>
+      <div class="diff-container">
+        <div class="diff-box" id="diff1"></div>
+        <div class="diff-box" id="diff2"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let dragged;
+    let sentenceDivs = [];
+
+    function toggleDarkMode() {
+      document.body.classList.toggle('dark');
+    }
+
+    function openPopup() {
+      const text = document.getElementById("inputText").value.trim();
+      const outputDiv = document.getElementById("outputContainer");
+      const modal = document.getElementById("sentenceModal");
+
+      outputDiv.innerHTML = "";
+      sentenceDivs = [];
+
+      const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g);
+
+      if (!sentences || sentences.length === 0) {
+        outputDiv.innerHTML = "<p>No sentences found.</p>";
+      } else {
+        sentences.forEach((sentence) => {
+          const div = document.createElement("div");
+          div.className = "sentence";
+          div.contentEditable = true;
+          div.spellcheck = true;
+          div.textContent = sentence.trim();
+          div.setAttribute("draggable", true);
+
+          div.addEventListener("dragstart", () => {
+            dragged = div;
+            div.style.opacity = 0.5;
+          });
+
+          div.addEventListener("dragend", () => {
+            dragged = null;
+            div.style.opacity = 1;
+          });
+
+          div.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            div.classList.add("drag-over");
+          });
+
+          div.addEventListener("dragleave", () => {
+            div.classList.remove("drag-over");
+          });
+
+          div.addEventListener("drop", () => {
+            if (dragged && dragged !== div) {
+              div.classList.remove("drag-over");
+              const container = document.getElementById("outputContainer");
+              const children = Array.from(container.children);
+              const dragIndex = children.indexOf(dragged);
+              const dropIndex = children.indexOf(div);
+              if (dragIndex < dropIndex) {
+                container.insertBefore(dragged, div.nextSibling);
+              } else {
+                container.insertBefore(dragged, div);
+              }
+            }
+          });
+
+          outputDiv.appendChild(div);
+          sentenceDivs.push(div);
+        });
+      }
+
+      modal.style.display = "block";
+    }
+
+    function closePopup() {
+      const container = document.getElementById("outputContainer");
+      const updatedSentences = Array.from(container.children)
+        .map(div => div.textContent.trim())
+        .join(" ");
+      document.getElementById("inputText").value = updatedSentences;
+      document.getElementById("sentenceModal").style.display = "none";
+    }
+
+    // --- TEXT COMPARISON FEATURE ---
+    function compareTexts() {
+      const text1 = document.getElementById("inputText").value.trim().split(/\s+/);
+      const text2 = document.getElementById("compareText").value.trim().split(/\s+/);
+
+      const diff1 = [];
+      const diff2 = [];
+
+      const maxLen = Math.max(text1.length, text2.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (text1[i] === text2[i]) {
+          diff1.push(text1[i] || "");
+          diff2.push(text2[i] || "");
+        } else {
+          if (text1[i]) diff1.push(`<span class="removed">${text1[i]}</span>`);
+          if (text2[i]) diff2.push(`<span class="added">${text2[i]}</span>`);
+        }
+      }
+
+      document.getElementById("diff1").innerHTML = diff1.join(" ");
+      document.getElementById("diff2").innerHTML = diff2.join(" ");
+      document.getElementById("compareModal").style.display = "block";
+    }
+
+    function closeCompare() {
+      document.getElementById("compareModal").style.display = "none";
+    }
+
+    window.onclick = function(event) {
+      if (event.target === document.getElementById("sentenceModal")) {
+        closePopup();
+      }
+      if (event.target === document.getElementById("compareModal")) {
+        closeCompare();
+      }
+    }
+  </script>
+
+</body>
+</html>
